@@ -11,19 +11,18 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "document_content" not in st.session_state:
     st.session_state.document_content = ""
-if "doc_name" not in st.session_state:
-    st.session_state.doc_name = ""
 
-# AI Model setup
-API_URL = "https://api-inference.huggingface.co/models/microsoft/phi-2"
+# AI Model setup - using a simpler, more reliable model
+API_URL = "https://api-inference.huggingface.co/models/facebook/opt-350m"
 headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 
 def get_ai_response(prompt, context=None):
     try:
         if context:
-            full_prompt = f"Context: {context[:500]}\nQuestion: {prompt}"
+            full_prompt = f"""Based on this context: {context[:500]}
+            Answer this question: {prompt}"""
         else:
-            full_prompt = prompt
+            full_prompt = f"""As a helpful teaching assistant, answer this: {prompt}"""
             
         response = requests.post(
             API_URL, 
@@ -31,9 +30,7 @@ def get_ai_response(prompt, context=None):
             json={
                 "inputs": full_prompt,
                 "parameters": {
-                    "max_new_tokens": 250,
-                    "temperature": 0.7,
-                    "top_p": 0.95,
+                    "max_length": 100,
                     "return_full_text": False
                 }
             }
@@ -43,13 +40,12 @@ def get_ai_response(prompt, context=None):
             result = response.json()
             if isinstance(result, list) and len(result) > 0:
                 return result[0]['generated_text'].strip()
-            else:
-                return "I apologize, but I couldn't generate a response. Please try again."
+            return "I couldn't generate a response. Please try again."
         else:
-            return f"Error {response.status_code}: The service is temporarily unavailable. Please try again in a moment."
+            return f"Error: Please try again. (Status: {response.status_code})"
             
     except Exception as e:
-        return f"I encountered an error: {str(e)}. Please try again."
+        return f"Error: {str(e)}"
 
 def read_pdf(file):
     try:
@@ -73,30 +69,32 @@ def read_docx(file):
         st.error(f"Error reading DOCX: {str(e)}")
         return ""
 
-# Sidebar for teacher controls
+# Main chat interface
+st.title("YYSS Teacher Assistant")
+
+# Sidebar
 with st.sidebar:
     st.title("Teacher Controls")
     uploaded_file = st.file_uploader("Upload Reference Document", type=['txt', 'pdf', 'docx'])
     if uploaded_file:
         try:
-            # Process different file types
             if uploaded_file.type == "text/plain":
                 content = uploaded_file.getvalue().decode()
             elif uploaded_file.type == "application/pdf":
                 content = read_pdf(uploaded_file)
-            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            else:
                 content = read_docx(uploaded_file)
             
             st.session_state.document_content = content
-            st.session_state.doc_name = uploaded_file.name
-            st.success(f"Uploaded and processed: {uploaded_file.name}")
-            st.write("Document Preview:")
+            st.success("Document processed!")
+            st.write("Preview:")
             st.write(content[:200] + "...")
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-
-# Main chat interface
-st.title("YYSS Teacher Assistant")
+    
+    if st.button("Clear Chat"):
+        st.session_state.messages = []
+        st.rerun()
 
 # Display chat messages
 for message in st.session_state.messages:
@@ -105,24 +103,12 @@ for message in st.session_state.messages:
 
 # Chat input
 if prompt := st.chat_input("Ask me a question"):
-    # Add user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
     
-    # Get AI response
     with st.spinner("Thinking..."):
-        if st.session_state.document_content:
-            response = get_ai_response(prompt, st.session_state.document_content)
-        else:
-            response = get_ai_response(prompt)
-        
+        response = get_ai_response(prompt, st.session_state.document_content if st.session_state.document_content else None)
         st.session_state.messages.append({"role": "assistant", "content": response})
         with st.chat_message("assistant"):
             st.write(response)
-
-# Add a reset button in the sidebar
-with st.sidebar:
-    if st.button("Clear Chat History"):
-        st.session_state.messages = []
-        st.rerun()
