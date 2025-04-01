@@ -1,8 +1,7 @@
 import streamlit as st
 import PyPDF2
 import docx
-import requests
-import json
+import openai
 
 # Page configuration
 st.set_page_config(page_title="YYSS Teacher Assistant", layout="wide")
@@ -15,85 +14,36 @@ if "document_content" not in st.session_state:
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = ""
 
-# Hugging Face API setup
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+# OpenAI setup
 try:
-    headers = {"Authorization": f"Bearer {st.secrets['huggingface']['api_token']}"}
+    openai.api_key = st.secrets["OPENAI_API_KEY"]
 except:
-    st.error("Hugging Face API token not found. Please configure in Streamlit Cloud settings.")
-    headers = {}
-
-def query_model(payload):
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"API Error: {response.status_code}")
-            return None
-    except Exception as e:
-        st.error(f"API Error: {str(e)}")
-        return None
+    st.error("OpenAI API key not found. Please configure in Streamlit Cloud settings.")
 
 def get_ai_response(prompt, context=None):
-    # Fallback responses for common questions
-    fallback_responses = {
-        "geography": """Geography is the study of places, people, and the relationships between them. It includes:
-- Physical geography (landforms, climate, natural resources)
-- Human geography (populations, cultures, economics)
-- Environmental geography (how humans interact with nature)
-Geography helps us understand our world and make informed decisions about environmental and social issues.""",
-        
-        "smart": """I am an AI assistant designed to help students and teachers. I can:
-- Answer questions about various subjects
-- Help explain complex topics
-- Assist with document understanding
-- Engage in educational discussions
-
-How can I help you learn today?""",
-        
-        "math": """Mathematics is a fundamental subject that includes:
-- Numbers and operations
-- Algebra and functions
-- Geometry and measurement
-- Statistics and probability
-What specific area of mathematics would you like to explore?""",
-
-        "science": """Science encompasses several major fields:
-- Biology (study of living things)
-- Chemistry (study of matter and its changes)
-- Physics (study of energy and forces)
-- Earth Science (study of our planet)
-Which area interests you most?"""
-    }
-
     try:
         if context:
-            full_prompt = f"Context: {context[:500]}...\n\nQuestion: {prompt}\nProvide a detailed, educational response suitable for secondary school students."
+            messages = [
+                {"role": "system", "content": "You are a helpful teaching assistant for secondary school students. Use the provided context to give accurate, educational responses."},
+                {"role": "user", "content": f"Context: {context[:2000]}...\n\nQuestion: {prompt}"}
+            ]
         else:
-            full_prompt = f"Question: {prompt}\nProvide a detailed, educational response suitable for secondary school students."
+            messages = [
+                {"role": "system", "content": "You are a helpful teaching assistant for secondary school students. Provide educational, accurate, and engaging responses."},
+                {"role": "user", "content": prompt}
+            ]
         
-        # Check for fallback responses first
-        for key, response in fallback_responses.items():
-            if key in prompt.lower():
-                return response
-
-        response = query_model({
-            "inputs": full_prompt,
-            "parameters": {
-                "max_length": 200,
-                "temperature": 0.7,
-                "top_p": 0.9
-            }
-        })
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500
+        )
         
-        if response and isinstance(response, list) and len(response) > 0:
-            return response[0]['generated_text']
-        else:
-            return "I apologize for the technical difficulty. Let me provide a general response: What specific aspect of this topic would you like to learn more about?"
+        return response.choices[0].message['content']
             
     except Exception as e:
-        return "I'm here to help! Could you please specify what aspect you'd like to learn about?"
+        return f"I encountered an error: {str(e)}. Please try again."
 
 def read_pdf(file):
     try:
