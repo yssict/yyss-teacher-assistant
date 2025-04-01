@@ -2,32 +2,24 @@ import streamlit as st
 import PyPDF2
 import docx
 import io
-from transformers import pipeline
-import torch
+import nltk
+from nltk.tokenize import sent_tokenize
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import string
+
+# Download required NLTK data
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
 
 # Page configuration
 st.set_page_config(page_title="YYSS Teacher Assistant", layout="wide")
-
-# Initialize the model (this will download a small model first time)
-@st.cache_resource
-def load_model():
-    try:
-        qa_pipeline = pipeline(
-            "question-answering",
-            model="facebook/bart-large-mnli",
-            device=0 if torch.cuda.is_available() else -1
-        )
-        chat_pipeline = pipeline(
-            "text-generation",
-            model="facebook/blenderbot-400M-distill",
-            device=0 if torch.cuda.is_available() else -1
-        )
-        return qa_pipeline, chat_pipeline
-    except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        return None, None
-
-qa_pipeline, chat_pipeline = load_model()
 
 # Initialize session state
 if "messages" not in st.session_state:
@@ -44,28 +36,61 @@ def read_pdf(file):
         text += page.extract_text() + "\n"
     return text
 
-def get_ai_response(prompt, doc_content=None):
-    try:
-        if doc_content and qa_pipeline:
-            # Try to answer from document first
-            answer = qa_pipeline(
-                question=prompt,
-                context=doc_content[:512]  # Limited context window
-            )
-            if answer['score'] > 0.1:  # Confidence threshold
-                return answer['answer']
+def preprocess_text(text):
+    # Tokenize into sentences
+    sentences = sent_tokenize(text)
+    return sentences
+
+def find_relevant_content(query, content):
+    # Preprocess query
+    query = query.lower()
+    query_words = set(word_tokenize(query)) - set(stopwords.words('english')) - set(string.punctuation)
+    
+    # Preprocess content
+    sentences = preprocess_text(content)
+    
+    # Find relevant sentences
+    relevant_sentences = []
+    for sentence in sentences:
+        sentence_words = set(word_tokenize(sentence.lower()))
+        # If any query word is in the sentence
+        if query_words & sentence_words:
+            relevant_sentences.append(sentence)
+    
+    return relevant_sentences
+
+def get_response(prompt, doc_content, doc_name):
+    prompt_lower = prompt.lower()
+    
+    # Document-specific queries
+    if doc_content:
+        # If asking about the uploaded document
+        if any(word in prompt_lower for word in ['document', 'uploaded', 'file']):
+            return f"I have the document '{doc_name}' uploaded. It contains information about {doc_content[:100]}... What would you like to know about it?"
         
-        # Fall back to general chat if no good document answer
-        if chat_pipeline:
-            response = chat_pipeline(
-                prompt,
-                max_length=100,
-                num_return_sequences=1
-            )[0]['generated_text']
+        # Find relevant content from document
+        relevant_content = find_relevant_content(prompt, doc_content)
+        if relevant_content:
+            response = "Based on the document:\n\n"
+            for sentence in relevant_content[:3]:  # Show up to 3 relevant sentences
+                response += f"• {sentence}\n\n"
             return response
-        
-    except Exception as e:
-        return f"I encountered an error: {str(e)}. Could you rephrase your question?"
+    
+    # General conversation responses
+    if 'hello' in prompt_lower or 'hi' in prompt_lower:
+        return "Hello! I'm your school assistant. I can help you understand documents or chat about school-related topics. What would you like to discuss?"
+    
+    elif 'help' in prompt_lower:
+        return "I can help you by:\n1. Answering questions about uploaded documents\n2. Discussing school subjects\n3. Explaining concepts\n\nWhat would you like to know more about?"
+    
+    elif any(subject in prompt_lower for subject in ['math', 'science', 'english', 'geography', 'history', 'literature']):
+        return f"I'd be happy to discuss {prompt}! What specific aspect would you like to explore? If you have any study materials to upload, I can help explain those too."
+    
+    elif doc_content:
+        return "I have access to the document but couldn't find a direct answer to your question. Could you rephrase it or be more specific about what you're looking for?"
+    
+    else:
+        return "I'm here to help! If you're asking about specific information, you can upload a document and I'll help you understand it. Or we can discuss any school-related topic you're interested in."
 
 # Sidebar for teacher controls
 with st.sidebar:
@@ -104,13 +129,8 @@ if prompt := st.chat_input("Ask me a question"):
     with st.chat_message("user"):
         st.write(prompt)
     
-    # Get AI response
-    response = get_ai_response(prompt, st.session_state.document_content)
+    # Get and display response
+    response = get_response(prompt, st.session_state.document_content, st.session_state.doc_name)
     st.session_state.messages.append({"role": "assistant", "content": response})
     with st.chat_message("assistant"):
         st.write(response)
-
-# Add requirements to requirements.txt:
-# transformers
-# torch
-# sentencepiece
