@@ -14,21 +14,16 @@ if "document_content" not in st.session_state:
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = ""
 
-# AI Model setup - using a different model
+# AI Model setup
 API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
 headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 
 def get_ai_response(prompt, context=None):
     try:
         if context:
-            full_prompt = f"""Instructions: You are a helpful teaching assistant. Using the provided context, give a clear and educational answer.
-            Context: {context[:500]}
-            Question: {prompt}
-            Answer:"""
+            full_prompt = f"""As a teaching assistant, using this context: {context[:500]}, answer: {prompt}"""
         else:
-            full_prompt = f"""Instructions: You are a helpful teaching assistant. Give a clear and educational answer.
-            Question: {prompt}
-            Answer:"""
+            full_prompt = f"""Answer this educational question: {prompt}"""
             
         response = requests.post(
             API_URL, 
@@ -39,7 +34,8 @@ def get_ai_response(prompt, context=None):
                     "max_length": 500,
                     "temperature": 0.7,
                     "top_p": 0.95,
-                    "do_sample": True
+                    "do_sample": True,
+                    "return_full_text": False
                 }
             }
         )
@@ -47,7 +43,18 @@ def get_ai_response(prompt, context=None):
         if response.status_code == 200:
             result = response.json()
             if isinstance(result, list) and len(result) > 0:
-                return result[0]['generated_text']
+                # Clean up the response by removing any instruction prefixes
+                answer = result[0]['generated_text']
+                prefixes_to_remove = [
+                    "Answer:", 
+                    "Instructions:", 
+                    "Question:",
+                    "Response:"
+                ]
+                for prefix in prefixes_to_remove:
+                    if answer.startswith(prefix):
+                        answer = answer[len(prefix):].strip()
+                return answer
             else:
                 return "I apologize, but I couldn't generate a proper response. Please try again."
         else:
@@ -116,7 +123,7 @@ if prompt := st.chat_input("Ask me a question"):
         st.write(prompt)
     
     # Get AI response
-    with st.spinner("Thinking..."):  # Added loading indicator
+    with st.spinner("Thinking..."):
         if st.session_state.document_content:
             response = get_ai_response(prompt, st.session_state.document_content)
         else:
