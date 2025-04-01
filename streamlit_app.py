@@ -12,17 +12,16 @@ if "messages" not in st.session_state:
 if "document_content" not in st.session_state:
     st.session_state.document_content = ""
 
-# AI Model setup - using a simpler, more reliable model
-API_URL = "https://api-inference.huggingface.co/models/facebook/opt-350m"
+# AI Model setup - using GPT-2
+API_URL = "https://api-inference.huggingface.co/models/gpt2"
 headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 
 def get_ai_response(prompt, context=None):
     try:
         if context:
-            full_prompt = f"""Based on this context: {context[:500]}
-            Answer this question: {prompt}"""
+            full_prompt = f"Context: {context[:500]}\nQuestion: {prompt}\nAnswer:"
         else:
-            full_prompt = f"""As a helpful teaching assistant, answer this: {prompt}"""
+            full_prompt = f"Question: {prompt}\nAnswer:"
             
         response = requests.post(
             API_URL, 
@@ -31,7 +30,8 @@ def get_ai_response(prompt, context=None):
                 "inputs": full_prompt,
                 "parameters": {
                     "max_length": 100,
-                    "return_full_text": False
+                    "num_return_sequences": 1,
+                    "temperature": 0.7
                 }
             }
         )
@@ -39,10 +39,10 @@ def get_ai_response(prompt, context=None):
         if response.status_code == 200:
             result = response.json()
             if isinstance(result, list) and len(result) > 0:
-                return result[0]['generated_text'].strip()
+                return result[0]['generated_text'].replace(full_prompt, "").strip()
             return "I couldn't generate a response. Please try again."
         else:
-            return f"Error: Please try again. (Status: {response.status_code})"
+            return f"Status {response.status_code}: {response.text}"
             
     except Exception as e:
         return f"Error: {str(e)}"
@@ -112,3 +112,9 @@ if prompt := st.chat_input("Ask me a question"):
         st.session_state.messages.append({"role": "assistant", "content": response})
         with st.chat_message("assistant"):
             st.write(response)
+
+# Add debug info in sidebar
+with st.sidebar:
+    if st.checkbox("Show Debug Info"):
+        st.write("API URL:", API_URL)
+        st.write("Token Status:", "Set" if st.secrets["HUGGINGFACE_API_KEY"] else "Not Set")
