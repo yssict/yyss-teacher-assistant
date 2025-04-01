@@ -15,15 +15,15 @@ if "doc_name" not in st.session_state:
     st.session_state.doc_name = ""
 
 # AI Model setup
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-xl"
+API_URL = "https://api-inference.huggingface.co/models/microsoft/phi-2"
 headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 
 def get_ai_response(prompt, context=None):
     try:
         if context:
-            full_prompt = f"Using this context: {context[:500]}, explain: {prompt}"
+            full_prompt = f"Context: {context[:500]}\nQuestion: {prompt}"
         else:
-            full_prompt = f"You are an enthusiastic and knowledgeable teaching assistant. Explain in detail: {prompt}"
+            full_prompt = prompt
             
         response = requests.post(
             API_URL, 
@@ -31,10 +31,10 @@ def get_ai_response(prompt, context=None):
             json={
                 "inputs": full_prompt,
                 "parameters": {
-                    "max_length": 1000,
+                    "max_new_tokens": 250,
                     "temperature": 0.7,
                     "top_p": 0.95,
-                    "do_sample": True
+                    "return_full_text": False
                 }
             }
         )
@@ -42,13 +42,9 @@ def get_ai_response(prompt, context=None):
         if response.status_code == 200:
             result = response.json()
             if isinstance(result, list) and len(result) > 0:
-                answer = result[0]['generated_text'].strip()
-                # For responses about lack of interest, provide encouraging educational context
-                if "not interested" in prompt.lower():
-                    return "Geography helps us understand our world, from climate change to global trade. It explains why cities are located where they are, how weather patterns affect our daily lives, and why different cultures developed in different ways. This knowledge is valuable for many careers, from urban planning to international business, and helps us make informed decisions about environmental and social issues."
-                return answer
+                return result[0]['generated_text'].strip()
             else:
-                return "I apologize, but I couldn't generate a proper response. Please try again."
+                return "I apologize, but I couldn't generate a response. Please try again."
         else:
             return f"Error {response.status_code}: The service is temporarily unavailable. Please try again in a moment."
             
