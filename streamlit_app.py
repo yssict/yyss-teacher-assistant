@@ -1,7 +1,7 @@
 import streamlit as st
 import PyPDF2
 import docx
-import openai
+import google.generativeai as genai
 
 # Page configuration
 st.set_page_config(page_title="YYSS Teacher Assistant", layout="wide")
@@ -14,33 +14,22 @@ if "document_content" not in st.session_state:
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = ""
 
-# OpenAI setup
+# Gemini setup
 try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+    model = genai.GenerativeModel('gemini-pro')
 except:
-    st.error("OpenAI API key not found. Please configure in Streamlit Cloud settings.")
+    st.error("Google API key not found. Please configure in Streamlit Cloud settings.")
 
 def get_ai_response(prompt, context=None):
     try:
         if context:
-            messages = [
-                {"role": "system", "content": "You are a helpful teaching assistant for secondary school students. Use the provided context to give accurate, educational responses."},
-                {"role": "user", "content": f"Context: {context[:2000]}...\n\nQuestion: {prompt}"}
-            ]
+            full_prompt = f"As a teaching assistant for secondary school students, use this context to answer the question: \nContext: {context[:2000]}...\n\nQuestion: {prompt}"
         else:
-            messages = [
-                {"role": "system", "content": "You are a helpful teaching assistant for secondary school students. Provide educational, accurate, and engaging responses."},
-                {"role": "user", "content": prompt}
-            ]
+            full_prompt = f"As a teaching assistant for secondary school students, answer this question: {prompt}"
         
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=500
-        )
-        
-        return response.choices[0].message['content']
+        response = model.generate_content(full_prompt)
+        return response.text
             
     except Exception as e:
         return f"I encountered an error: {str(e)}. Please try again."
