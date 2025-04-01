@@ -1,7 +1,7 @@
 import streamlit as st
 import PyPDF2
 import docx
-import google.generativeai as genai
+import requests
 
 # Page configuration
 st.set_page_config(page_title="YYSS Teacher Assistant", layout="wide")
@@ -14,22 +14,23 @@ if "document_content" not in st.session_state:
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = ""
 
-# Gemini setup
-try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel('gemini-pro')
-except:
-    st.error("Google API key not found. Please configure in Streamlit Cloud settings.")
+# AI Model setup
+API_URL = "https://api-inference.huggingface.co/models/facebook/opt-1.3b"
+headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 
 def get_ai_response(prompt, context=None):
     try:
         if context:
-            full_prompt = f"As a teaching assistant for secondary school students, use this context to answer the question: \nContext: {context[:2000]}...\n\nQuestion: {prompt}"
+            full_prompt = f"As a teaching assistant, use this context to answer: {context[:500]}... Question: {prompt}"
         else:
-            full_prompt = f"As a teaching assistant for secondary school students, answer this question: {prompt}"
+            full_prompt = prompt
+            
+        response = requests.post(API_URL, headers=headers, json={"inputs": full_prompt})
         
-        response = model.generate_content(full_prompt)
-        return response.text
+        if response.status_code == 200:
+            return response.json()[0]['generated_text']
+        else:
+            return f"Error: {response.status_code}. Please try again."
             
     except Exception as e:
         return f"I encountered an error: {str(e)}. Please try again."
