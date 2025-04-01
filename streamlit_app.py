@@ -14,23 +14,44 @@ if "document_content" not in st.session_state:
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = ""
 
-# AI Model setup
-API_URL = "https://api-inference.huggingface.co/models/facebook/opt-1.3b"
+# AI Model setup - using a different model
+API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
 headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 
 def get_ai_response(prompt, context=None):
     try:
         if context:
-            full_prompt = f"As a teaching assistant, use this context to answer: {context[:500]}... Question: {prompt}"
+            full_prompt = f"""Instructions: You are a helpful teaching assistant. Using the provided context, give a clear and educational answer.
+            Context: {context[:500]}
+            Question: {prompt}
+            Answer:"""
         else:
-            full_prompt = prompt
+            full_prompt = f"""Instructions: You are a helpful teaching assistant. Give a clear and educational answer.
+            Question: {prompt}
+            Answer:"""
             
-        response = requests.post(API_URL, headers=headers, json={"inputs": full_prompt})
+        response = requests.post(
+            API_URL, 
+            headers=headers, 
+            json={
+                "inputs": full_prompt,
+                "parameters": {
+                    "max_length": 500,
+                    "temperature": 0.7,
+                    "top_p": 0.95,
+                    "do_sample": True
+                }
+            }
+        )
         
         if response.status_code == 200:
-            return response.json()[0]['generated_text']
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                return result[0]['generated_text']
+            else:
+                return "I apologize, but I couldn't generate a proper response. Please try again."
         else:
-            return f"Error: {response.status_code}. Please try again."
+            return f"Error {response.status_code}: The service is temporarily unavailable. Please try again in a moment."
             
     except Exception as e:
         return f"I encountered an error: {str(e)}. Please try again."
@@ -95,14 +116,15 @@ if prompt := st.chat_input("Ask me a question"):
         st.write(prompt)
     
     # Get AI response
-    if st.session_state.document_content:
-        response = get_ai_response(prompt, st.session_state.document_content)
-    else:
-        response = get_ai_response(prompt)
-    
-    st.session_state.messages.append({"role": "assistant", "content": response})
-    with st.chat_message("assistant"):
-        st.write(response)
+    with st.spinner("Thinking..."):  # Added loading indicator
+        if st.session_state.document_content:
+            response = get_ai_response(prompt, st.session_state.document_content)
+        else:
+            response = get_ai_response(prompt)
+        
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.chat_message("assistant"):
+            st.write(response)
 
 # Add a reset button in the sidebar
 with st.sidebar:
