@@ -12,8 +12,8 @@ if "messages" not in st.session_state:
 if "document_content" not in st.session_state:
     st.session_state.document_content = ""
 
-# AI Model setup - using GPT-2
-API_URL = "https://api-inference.huggingface.co/models/gpt2"
+# AI Model setup - using GPT-Neo 2.7B for more advanced responses
+API_URL = "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-2.7B"
 headers = {"Authorization": f"Bearer {st.secrets['HUGGINGFACE_API_KEY']}"}
 
 def get_ai_response(prompt, context=None):
@@ -29,9 +29,9 @@ def get_ai_response(prompt, context=None):
             json={
                 "inputs": full_prompt,
                 "parameters": {
-                    "max_length": 100,
-                    "num_return_sequences": 1,
-                    "temperature": 0.7
+                    "max_new_tokens": 150,  # Adjust for longer responses if needed
+                    "temperature": 0.7,
+                    "top_p": 0.9
                 }
             }
         )
@@ -72,7 +72,7 @@ def read_docx(file):
 # Main chat interface
 st.title("YYSS Teacher Assistant")
 
-# Sidebar
+# Sidebar for teacher controls
 with st.sidebar:
     st.title("Teacher Controls")
     uploaded_file = st.file_uploader("Upload Reference Document", type=['txt', 'pdf', 'docx'])
@@ -118,3 +118,4 @@ with st.sidebar:
     if st.checkbox("Show Debug Info"):
         st.write("API URL:", API_URL)
         st.write("Token Status:", "Set" if st.secrets["HUGGINGFACE_API_KEY"] else "Not Set")
+
