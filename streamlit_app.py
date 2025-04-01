@@ -1,22 +1,9 @@
 import streamlit as st
 import PyPDF2
 import docx
-import io
-import nltk
-from nltk.tokenize import sent_tokenize
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-import string
-
-# Download required NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
+import requests
+import json
+import os
 
 # Page configuration
 st.set_page_config(page_title="YYSS Teacher Assistant", layout="wide")
@@ -29,68 +16,63 @@ if "document_content" not in st.session_state:
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = ""
 
-def read_pdf(file):
-    pdf_reader = PyPDF2.PdfReader(file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text() + "\n"
-    return text
+# Hugging Face API setup
+API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+headers = {"Authorization": f"Bearer {os.environ.get('HUGGINGFACE_API_TOKEN')}"}
 
-def preprocess_text(text):
-    # Tokenize into sentences
-    sentences = sent_tokenize(text)
-    return sentences
+def query_model(payload):
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload)
+        return response.json()
+    except Exception as e:
+        st.error(f"API Error: {str(e)}")
+        return None
 
-def find_relevant_content(query, content):
-    # Preprocess query
-    query = query.lower()
-    query_words = set(word_tokenize(query)) - set(stopwords.words('english')) - set(string.punctuation)
-    
-    # Preprocess content
-    sentences = preprocess_text(content)
-    
-    # Find relevant sentences
-    relevant_sentences = []
-    for sentence in sentences:
-        sentence_words = set(word_tokenize(sentence.lower()))
-        # If any query word is in the sentence
-        if query_words & sentence_words:
-            relevant_sentences.append(sentence)
-    
-    return relevant_sentences
-
-def get_response(prompt, doc_content, doc_name):
-    prompt_lower = prompt.lower()
-    
-    # Document-specific queries
-    if doc_content:
-        # If asking about the uploaded document
-        if any(word in prompt_lower for word in ['document', 'uploaded', 'file']):
-            return f"I have the document '{doc_name}' uploaded. It contains information about {doc_content[:100]}... What would you like to know about it?"
+def get_ai_response(prompt, context=None):
+    try:
+        if context:
+            full_prompt = f"Context: {context[:500]}...\n\nQuestion: {prompt}\nPlease provide a detailed, educational response suitable for secondary school students."
+        else:
+            full_prompt = f"Question: {prompt}\nPlease provide a detailed, educational response suitable for secondary school students."
         
-        # Find relevant content from document
-        relevant_content = find_relevant_content(prompt, doc_content)
-        if relevant_content:
-            response = "Based on the document:\n\n"
-            for sentence in relevant_content[:3]:  # Show up to 3 relevant sentences
-                response += f"• {sentence}\n\n"
-            return response
-    
-    # General conversation responses
-    if 'hello' in prompt_lower or 'hi' in prompt_lower:
-        return "Hello! I'm your school assistant. I can help you understand documents or chat about school-related topics. What would you like to discuss?"
-    
-    elif 'help' in prompt_lower:
-        return "I can help you by:\n1. Answering questions about uploaded documents\n2. Discussing school subjects\n3. Explaining concepts\n\nWhat would you like to know more about?"
-    
-    elif any(subject in prompt_lower for subject in ['math', 'science', 'english', 'geography', 'history', 'literature']):
-        return f"I'd be happy to discuss {prompt}! What specific aspect would you like to explore? If you have any study materials to upload, I can help explain those too."
-    
-    elif doc_content:
-        return "I have access to the document but couldn't find a direct answer to your question. Could you rephrase it or be more specific about what you're looking for?"
-    
-    else:
-        return "I'm here to help! If you're asking about specific information, you can upload a document and I'll help you understand it. Or we can discuss any school-related topic you're interested in."
+        response = query_model({
+            "inputs": full_prompt,
+            "parameters": {
+                "max_length": 200,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        })
+        
+        if response and isinstance(response, list) and len(response) > 0:
+            return response[0]['generated_text']
+        else:
+            return "I apologize, but I'm having trouble generating a response. Could you try rephrasing your question?"
+            
+    except Exception as e:
+        return f"I apologize, but I encountered an error. Please try again or rephrase your question."
+
+def read_pdf(file):
+    try:
+        pdf_reader = PyPDF2.PdfReader(file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Error reading PDF: {str(e)}")
+        return ""
+
+def read_docx(file):
+    try:
+        doc = docx.Document(file)
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Error reading DOCX: {str(e)}")
+        return ""
 
 # Sidebar for teacher controls
 with st.sidebar:
@@ -129,8 +111,18 @@ if prompt := st.chat_input("Ask me a question"):
     with st.chat_message("user"):
         st.write(prompt)
     
-    # Get and display response
-    response = get_response(prompt, st.session_state.document_content, st.session_state.doc_name)
+    # Get AI response
+    if st.session_state.document_content:
+        response = get_ai_response(prompt, st.session_state.document_content)
+    else:
+        response = get_ai_response(prompt)
+    
     st.session_state.messages.append({"role": "assistant", "content": response})
     with st.chat_message("assistant"):
         st.write(response)
+
+# Add a reset button in the sidebar
+with st.sidebar:
+    if st.button("Clear Chat History"):
+        st.session_state.messages = []
+        st.rerun()
